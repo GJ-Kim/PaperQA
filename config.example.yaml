@@ -1,4 +1,6 @@
 root: /data/papers
+docling_cache_root: /data/docling-mcp/cache
+import_max_bytes: 104857600
 transport: http
 host: 0.0.0.0
 port: 8010

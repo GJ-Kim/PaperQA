@@ -29,6 +29,11 @@ class ArtifactType(StrEnum):
     OTHER = "other"
 
 
+class DoclingArtifactType(StrEnum):
+    DOCLING_JSON = "docling_json"
+    SOURCE_MARKDOWN = "source_markdown"
+
+
 class Issue(BaseModel):
     severity: Severity
     code: str

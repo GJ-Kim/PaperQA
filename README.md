@@ -5,6 +5,7 @@
 ## 제공 도구
 
 - `create_job`, `register_artifact`: 격리된 작업 생성과 안전한 파일 등록
+- `import_docling_artifact`: 승인된 Docling 캐시의 basename을 안전하게 반입·등록
 - `create_source_index`: Docling JSON 요소와 수식/구조 인벤토리 생성
 - `create_translation_chunks`, `create_chunk_manifest`: 요소 마커가 포함된 청크 및 Manifest 생성/검증
 - `validate_translation_completeness`: 청크·요소 누락, 중복, 빈 번역, 의심 축약 검사
@@ -36,7 +37,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml \
   -f mcp/paper-qa-mcp/compose.paper-qa.yml up -d --build paper-qa-mcp api
 ```
 
-기존 `librechat.yaml`에는 [deploy/librechat.paper-qa.snippet.yaml](deploy/librechat.paper-qa.snippet.yaml)의 주소와 서버 항목을 병합합니다. 첨부 구성과 동일하게 호스트 `/home/sup3rgj/ai-data`가 컨테이너의 `/data`에 마운트되며, QA 작업은 `/data/papers/<job_id>` 아래에 생성됩니다. 외부 포트는 공개하지 않습니다.
+기존 `librechat.yaml`에는 [deploy/librechat.paper-qa.snippet.yaml](deploy/librechat.paper-qa.snippet.yaml)의 주소와 서버 항목을 병합합니다. QA 작업 영역은 호스트 `/home/sup3rgj/ai-data/papers`에서 컨테이너 `/data/papers`로 쓰기 가능하게 마운트합니다. Docling 캐시는 `/home/sup3rgj/ai-data/docling-mcp/cache`에서 `/data/docling-mcp/cache`로 읽기 전용 마운트합니다. 외부 포트는 공개하지 않습니다.
 
 ## 안전한 파일 반입 흐름
 
@@ -45,21 +46,33 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml \
 3. `register_artifact(job_id, "incoming/file.pdf", "original_pdf")`처럼 등록합니다.
 4. 등록 도구가 파일을 표준 위치에 원자적으로 복사하고 SHA-256을 기록합니다.
 
+Docling의 `save_docling_document`가 `/data/docling-mcp/cache/<id>.json` 및
+`.md`를 반환했다면 Filesystem 복사 대신 basename만 전달합니다.
+
+```text
+import_docling_artifact(job_id, "<id>.json", "docling_json")
+import_docling_artifact(job_id, "<id>.md", "source_markdown")
+```
+
+절대경로는 이 도구에도 전달하지 않습니다. 동일 내용의 재호출은 멱등 성공하고,
+같은 canonical 목적지에 다른 내용이 있으면 덮어쓰지 않고 충돌 오류를 반환합니다.
+
 모든 MCP 경로는 작업 디렉터리 기준 POSIX 상대경로만 허용합니다. `..`, 절대경로, Windows 드라이브 경로, 심볼릭 링크 경로는 거부합니다.
 
 ## 권장 실행 순서
 
 1. `create_job`
 2. 입력 파일 배치 및 `register_artifact`
-3. `create_source_index`
-4. `create_translation_chunks`
-5. Agent가 `chunks/source`를 번역하여 대응하는 `chunks/translated/*_ko.md` 작성
-6. `validate_translation_completeness`
-7. `merge_translated_chunks`
-8. `validate_latex_equations`, `validate_document_structure`
-9. Pandoc MCP로 DOCX 생성
-10. `register_artifact(..., "docx")`, `validate_docx_omml`
-11. `generate_qa_report`
+3. Docling 캐시 결과를 `import_docling_artifact`로 반입
+4. `create_source_index`
+5. `create_translation_chunks`
+6. Agent가 `chunks/source`를 번역하여 대응하는 `chunks/translated/*_ko.md` 작성
+7. `validate_translation_completeness`
+8. `merge_translated_chunks`
+9. `validate_latex_equations`, `validate_document_structure`
+10. Pandoc MCP로 DOCX 생성
+11. `register_artifact(..., "docx")`, `validate_docx_omml`
+12. `generate_qa_report`
 
 수식 청크는 `qa-eq####` 식별자가 있는 fenced div로 생성됩니다. Pandoc이 이를 DOCX 북마크로 보존하면 수식별 추적에 사용하고, 보존하지 않으면 OMML 개수 및 순서 기반 검사로 후퇴하여 `WARN`을 기록합니다.
 

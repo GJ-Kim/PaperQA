@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 
 from ..config import Settings
-from ..schemas import ArtifactType, Issue, Severity, Status
+from ..schemas import ArtifactType, DoclingArtifactType, Issue, Severity, Status
+from ..services.docling_import import ArtifactImportError, DoclingArtifactImporter
 from ..services.docling_index import create_index
 from ..services.docx_validation import inspect_docx
 from ..services.latex_validation import compare_math, extract_math
@@ -22,8 +25,16 @@ from ..services.report import generate_report as build_report
 from ..services.structure_validation import validate_structure
 from ..storage import Workspace, sha256_file
 
+logger = logging.getLogger(__name__)
+
 
 def install_tools(mcp: FastMCP, settings: Settings, workspace: Workspace) -> None:
+    docling_importer = DoclingArtifactImporter(
+        workspace,
+        settings.docling_cache_root,
+        settings.import_max_bytes,
+    )
+
     def summary(value: Any) -> dict[str, Any]:
         return value.model_dump(mode="json") if hasattr(value, "model_dump") else value
 
@@ -34,6 +45,8 @@ def install_tools(mcp: FastMCP, settings: Settings, workspace: Workspace) -> Non
             "status": "ok",
             "root": str(settings.root),
             "pandoc": settings.pandoc_binary,
+            "docling_import_enabled": True,
+            "docling_import_max_bytes": settings.import_max_bytes,
             "schema_version": "1.0",
         }
 
@@ -51,6 +64,24 @@ def install_tools(mcp: FastMCP, settings: Settings, workspace: Workspace) -> Non
     ) -> dict[str, Any]:
         """Copy and register a file already placed in this job's incoming directory."""
         return workspace.register_artifact(job_id, source_path, artifact_type, destination_path)
+
+    @mcp.tool
+    def import_docling_artifact(
+        job_id: str,
+        filename: str,
+        artifact_type: DoclingArtifactType,
+    ) -> dict[str, object]:
+        """Import a Docling JSON or Markdown cache basename and register it atomically."""
+        try:
+            return docling_importer.import_artifact(job_id, filename, artifact_type)
+        except ArtifactImportError as exc:
+            logger.warning(
+                "Docling artifact import rejected job_id=%s type=%s code=%s",
+                job_id,
+                artifact_type.value,
+                exc.code.value,
+            )
+            raise ToolError(str(exc)) from None
 
     @mcp.tool
     def create_source_index(

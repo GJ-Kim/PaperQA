@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import anyio
+import pytest
 from fastmcp import Client, FastMCP
 
 from paper_qa.config import Settings
@@ -13,13 +14,20 @@ def test_in_memory_mcp_exposes_and_calls_tools(tmp_path: Path) -> None:
     async def exercise() -> None:
         mcp = FastMCP("test-paper-qa")
         workspace = Workspace(tmp_path)
-        install_tools(mcp, Settings(root=tmp_path), workspace)
+        cache = tmp_path / "docling-cache"
+        cache.mkdir()
+        install_tools(
+            mcp,
+            Settings(root=tmp_path, docling_cache_root=cache),
+            workspace,
+        )
         async with Client(mcp) as client:
             tools = await client.list_tools()
             names = {tool.name for tool in tools}
             assert {
                 "create_job",
                 "register_artifact",
+                "import_docling_artifact",
                 "create_source_index",
                 "create_translation_chunks",
                 "validate_latex_equations",
@@ -52,16 +60,26 @@ def test_in_memory_mcp_exposes_and_calls_tools(tmp_path: Path) -> None:
                     },
                 ],
             }
-            workspace.write_text(job_id, "incoming/docling.json", json.dumps(docling))
+            (cache / "docling.json").write_text(json.dumps(docling), encoding="utf-8")
             registered = await client.call_tool(
-                "register_artifact",
+                "import_docling_artifact",
                 {
                     "job_id": job_id,
-                    "source_path": "incoming/docling.json",
+                    "filename": "docling.json",
                     "artifact_type": "docling_json",
                 },
             )
-            assert registered.data["path"] == "extracted/original.docling.json"
+            assert registered.data["artifact_path"] == "extracted/original.docling.json"
+
+            with pytest.raises(Exception, match="INVALID_FILENAME"):
+                await client.call_tool(
+                    "import_docling_artifact",
+                    {
+                        "job_id": job_id,
+                        "filename": "/data/docling-mcp/cache/docling.json",
+                        "artifact_type": "docling_json",
+                    },
+                )
 
             indexed = await client.call_tool("create_source_index", {"job_id": job_id})
             assert indexed.data["elements"] == 2
