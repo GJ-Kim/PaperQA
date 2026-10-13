@@ -1,0 +1,11 @@
+.venv/
+.vs/
+.vscode/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+paper-workspace/
+

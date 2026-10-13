@@ -1,0 +1,14 @@
+# Merge these entries into the existing librechat.yaml.
+mcpSettings:
+  allowedAddresses:
+    - "paper-qa-mcp:8010"
+
+mcpServers:
+  paper-qa:
+    type: streamable-http
+    url: http://paper-qa-mcp:8010/mcp
+    timeout: 300000
+    initTimeout: 120000
+    requiresOAuth: false
+    serverInstructions: true
+
